@@ -1,5 +1,5 @@
 streamlit==1.28.0
-tensorflow-cpu==2.12.0  # Downgraded slightly for max stability with Python 3.10
+tensorflow-cpu==2.14.0 # A later version known to be compatible with 3.10/3.11
 opencv-python-headless==4.8.1.78
 Pillow==10.0.1
-numpy==1.24.3          # Keep this pinned
+numpy==1.24.3      # Keep this pinned
