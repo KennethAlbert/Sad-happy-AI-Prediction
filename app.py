@@ -1,8 +1,8 @@
 import streamlit as st
-import onnxruntime as ort
+import tensorflow as tf
+import cv2
 import numpy as np
 from PIL import Image
-import cv2
 import os
 
 # Set page configuration
@@ -14,28 +14,55 @@ st.set_page_config(
 
 st.title("🎭 Emotion Classification App")
 
+def create_model():
+    """Create model architecture"""
+    model = tf.keras.Sequential([
+        tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=(256, 256, 3)),
+        tf.keras.layers.MaxPooling2D(),
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D(),
+        tf.keras.layers.Conv2D(16, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D(),
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(256, activation='relu'),
+        tf.keras.layers.Dense(1, activation='sigmoid')
+    ])
+    
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
 @st.cache_resource
 def load_model():
-    """Load ONNX model"""
+    """Load the trained model"""
     try:
-        model_path = 'models/emotion_model.onnx'
-        if os.path.exists(model_path):
-            session = ort.InferenceSession(model_path)
-            st.sidebar.success("✅ ONNX model loaded!")
-            return session
-        else:
-            st.sidebar.error("❌ Model file not found")
-            return None
+        # Try different model files
+        model_files = [
+            'models/simple_emotion_model.h5',
+            'models/emotion_classifier.h5',
+            'models/simple_emotion_weights.weights.h5'
+        ]
+        
+        for model_file in model_files:
+            if os.path.exists(model_file):
+                if 'weights' in model_file:
+                    model = create_model()
+                    model.load_weights(model_file)
+                    return model
+                else:
+                    return tf.keras.models.load_model(model_file)
+        
+        # If no model files found, create empty model
+        return create_model()
+        
     except Exception as e:
-        st.sidebar.error(f"❌ Error: {str(e)}")
-        return None
+        st.error(f"Error loading model: {e}")
+        return create_model()
 
 def preprocess_image(image):
-    """Preprocess image for model prediction"""
-    # Convert to numpy array
+    """Preprocess image for prediction"""
     img = np.array(image)
     
-    # Convert to RGB if needed
+    # Handle different image formats
     if len(img.shape) == 3:
         if img.shape[2] == 4:  # RGBA to RGB
             img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
@@ -43,34 +70,36 @@ def preprocess_image(image):
     # Resize to 256x256
     img_resized = cv2.resize(img, (256, 256))
     
-    # Normalize to [0, 1] and add batch dimension
-    processed_img = np.expand_dims(img_resized / 255.0, 0).astype(np.float32)
+    # Normalize and add batch dimension
+    processed_img = np.expand_dims(img_resized / 255.0, 0)
     
     return processed_img
 
 def main():
-    """Main function"""
+    """Main app function"""
     
     # Sidebar info
     with st.sidebar:
-        st.header("ℹ️ About")
-        st.write("Classifies facial expressions as Happy or Sad")
+        st.header("ℹ️ Info")
+        st.write("Upload a face image to classify emotion")
         
-        # Check model file
-        if os.path.exists('models/emotion_model.onnx'):
-            st.success("✅ Model file found")
-        else:
-            st.error("❌ Model file missing")
+        # Check model files
+        if os.path.exists('models'):
+            files = os.listdir('models')
+            if files:
+                st.success(f"Found {len(files)} model file(s)")
+            else:
+                st.warning("No model files in models folder")
     
     # Load model
     model = load_model()
     
     if model:
-        st.success("🚀 Ready for predictions!")
+        st.success("✅ Model loaded successfully!")
         
         # File upload
         uploaded_file = st.file_uploader(
-            "Choose an image file (JPG, JPEG, PNG, BMP)",
+            "Choose an image file",
             type=['jpg', 'jpeg', 'png', 'bmp']
         )
         
@@ -80,13 +109,10 @@ def main():
                 image = Image.open(uploaded_file)
                 st.image(image, caption="Uploaded Image", use_column_width=True)
                 
-                # Preprocess and predict
-                with st.spinner('🔍 Analyzing emotion...'):
+                # Predict
+                with st.spinner('Analyzing emotion...'):
                     processed_img = preprocess_image(image)
-                    
-                    # ONNX prediction
-                    input_name = model.get_inputs()[0].name
-                    prediction = model.run(None, {input_name: processed_img})[0]
+                    prediction = model.predict(processed_img, verbose=0)
                 
                 # Display results
                 confidence = float(prediction[0][0])
@@ -105,40 +131,15 @@ def main():
                     happy_conf = (1 - confidence) * 100
                     sad_conf = confidence * 100
                     
-                    st.write("**Confidence Levels:**")
+                    st.write("Confidence:")
                     st.progress(int(happy_conf))
-                    st.write(f"😊 Happy: {happy_conf:.1f}%")
+                    st.write(f"Happy: {happy_conf:.1f}%")
                     
                     st.progress(int(sad_conf))
-                    st.write(f"😢 Sad: {sad_conf:.1f}%")
-                
-                # Technical details
-                with st.expander("🔧 Technical Details"):
-                    st.write(f"Raw output: {prediction[0][0]:.6f}")
-                    st.write(f"Threshold: 0.5")
+                    st.write(f"Sad: {sad_conf:.1f}%")
                     
             except Exception as e:
-                st.error(f"❌ Error processing image: {str(e)}")
-        
-        # Add usage tips
-        with st.expander("💡 Tips for best results"):
-            st.markdown("""
-            - **Clear, well-lit face images work best**
-            - **Front-facing photos are more accurate**  
-            - **Avoid heavy filters or editing**
-            - **Ensure the face is clearly visible**
-            """)
-    
-    else:
-        st.error("""
-        ❌ **Model not loaded**
-        
-        Please ensure:
-        1. Convert your model to ONNX using the Colab code
-        2. Download `emotion_model.onnx`
-        3. Place it in the `models` folder
-        4. Redeploy the app
-        """)
+                st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
