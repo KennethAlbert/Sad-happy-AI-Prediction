@@ -1,0 +1,4 @@
+# .streamlit/config.toml
+[server]
+# Set the Python version to a stable release known to support TensorFlow 2.x
+pythonVersion = "3.10"
