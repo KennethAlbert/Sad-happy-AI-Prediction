@@ -15,10 +15,7 @@ st.set_page_config(
 st.title("🎭 Emotion Classification App")
 
 def create_model():
-    """
-    Create the model architecture from scratch
-    This matches your original Colab model exactly
-    """
+    """Create model architecture"""
     model = tf.keras.Sequential([
         tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=(256, 256, 3)),
         tf.keras.layers.MaxPooling2D(),
@@ -31,71 +28,41 @@ def create_model():
         tf.keras.layers.Dense(1, activation='sigmoid')
     ])
     
-    model.compile(
-        optimizer='adam',
-        loss='binary_crossentropy',
-        metrics=['accuracy']
-    )
-    
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
 @st.cache_resource
-def load_model_with_weights():
-    """
-    Create model architecture and load weights separately
-    This avoids the InputLayer compatibility issue
-    """
-    st.sidebar.header("🔄 Loading Model")
-    
-    # Try loading strategies in order
-    strategies = [
-        # Strategy 1: Try loading the full simple model
-        {
-            'name': 'Full Simple Model',
-            'file': 'models/simple_emotion_model.h5',
-            'loader': lambda path: tf.keras.models.load_model(path, safe_mode=False)
-        },
-        # Strategy 2: Try loading weights into created architecture
-        {
-            'name': 'Weights + Architecture',
-            'file': 'models/simple_emotion_weights.weights.h5',
-            'loader': lambda path: load_weights_into_architecture(path)
-        },
-        # Strategy 3: Try original weights
-        {
-            'name': 'Original Weights',
-            'file': 'models/emotion_weights.weights.h5',
-            'loader': lambda path: load_weights_into_architecture(path)
-        }
-    ]
-    
-    for strategy in strategies:
-        if os.path.exists(strategy['file']):
-            try:
-                st.sidebar.info(f"Trying: {strategy['name']}")
-                model = strategy['loader'](strategy['file'])
-                st.sidebar.success(f"✅ {strategy['name']} loaded!")
-                return model
-            except Exception as e:
-                st.sidebar.error(f"❌ {strategy['name']} failed: {str(e)}")
-                continue
-    
-    # Final fallback: create untrained model
-    st.sidebar.warning("⚠️ No model files found - using untrained model")
-    return create_model()
-
-def load_weights_into_architecture(weights_path):
-    """Load weights into newly created architecture"""
-    model = create_model()
-    model.load_weights(weights_path)
-    return model
+def load_model():
+    """Load the trained model"""
+    try:
+        # Try different model files
+        model_files = [
+            'models/simple_emotion_model.h5',
+            'models/emotion_classifier.h5',
+            'models/simple_emotion_weights.weights.h5'
+        ]
+        
+        for model_file in model_files:
+            if os.path.exists(model_file):
+                if 'weights' in model_file:
+                    model = create_model()
+                    model.load_weights(model_file)
+                    return model
+                else:
+                    return tf.keras.models.load_model(model_file)
+        
+        # If no model files found, create empty model
+        return create_model()
+        
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return create_model()
 
 def preprocess_image(image):
-    """Preprocess the uploaded image for model prediction"""
-    # Convert to numpy array
+    """Preprocess image for prediction"""
     img = np.array(image)
     
-    # Convert to RGB if needed
+    # Handle different image formats
     if len(img.shape) == 3:
         if img.shape[2] == 4:  # RGBA to RGB
             img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
@@ -103,65 +70,52 @@ def preprocess_image(image):
     # Resize to 256x256
     img_resized = cv2.resize(img, (256, 256))
     
-    # Normalize to [0, 1] and add batch dimension
+    # Normalize and add batch dimension
     processed_img = np.expand_dims(img_resized / 255.0, 0)
     
-    return processed_img, img
-
-def display_file_status():
-    """Display which model files are available"""
-    with st.sidebar:
-        st.header("📁 File Status")
-        
-        if not os.path.exists('models'):
-            st.error("❌ 'models' folder not found!")
-            return
-        
-        files = os.listdir('models')
-        if files:
-            st.success(f"✅ Found {len(files)} file(s):")
-            for file in sorted(files):
-                file_path = os.path.join('models', file)
-                file_size = os.path.getsize(file_path) / 1024
-                st.write(f"📄 {file} ({file_size:.1f} KB)")
-        else:
-            st.error("❌ No files in models folder")
+    return processed_img
 
 def main():
-    """Main function to run the Streamlit app"""
+    """Main app function"""
     
-    # Display file status
-    display_file_status()
+    # Sidebar info
+    with st.sidebar:
+        st.header("ℹ️ Info")
+        st.write("Upload a face image to classify emotion")
+        
+        # Check model files
+        if os.path.exists('models'):
+            files = os.listdir('models')
+            if files:
+                st.success(f"Found {len(files)} model file(s)")
+            else:
+                st.warning("No model files in models folder")
     
     # Load model
-    model = load_model_with_weights()
+    model = load_model()
     
     if model:
-        st.success("✅ Model is ready for predictions!")
+        st.success("✅ Model loaded successfully!")
         
-        # File upload section
-        st.header("📤 Upload Image")
+        # File upload
         uploaded_file = st.file_uploader(
             "Choose an image file",
-            type=['jpg', 'jpeg', 'png', 'bmp'],
-            help="Upload a clear face image for emotion classification"
+            type=['jpg', 'jpeg', 'png', 'bmp']
         )
         
         if uploaded_file is not None:
             try:
-                # Display uploaded image
+                # Display image
                 image = Image.open(uploaded_file)
                 st.image(image, caption="Uploaded Image", use_column_width=True)
                 
-                # Preprocess and predict
-                with st.spinner('🔍 Analyzing emotion...'):
-                    processed_img, original_img = preprocess_image(image)
+                # Predict
+                with st.spinner('Analyzing emotion...'):
+                    processed_img = preprocess_image(image)
                     prediction = model.predict(processed_img, verbose=0)
                 
                 # Display results
                 confidence = float(prediction[0][0])
-                
-                st.header("🎯 Prediction Results")
                 
                 col1, col2 = st.columns(2)
                 
@@ -177,46 +131,15 @@ def main():
                     happy_conf = (1 - confidence) * 100
                     sad_conf = confidence * 100
                     
-                    st.write("**Confidence Breakdown:**")
+                    st.write("Confidence:")
                     st.progress(int(happy_conf))
-                    st.write(f"😊 Happy: {happy_conf:.1f}%")
+                    st.write(f"Happy: {happy_conf:.1f}%")
                     
                     st.progress(int(sad_conf))
-                    st.write(f"😢 Sad: {sad_conf:.1f}%")
-                
-                # Show raw prediction value
-                with st.expander("🔧 Technical Details"):
-                    st.write(f"Raw prediction value: {prediction[0][0]:.6f}")
-                    st.write(f"Decision threshold: 0.5")
+                    st.write(f"Sad: {sad_conf:.1f}%")
                     
             except Exception as e:
-                st.error(f"❌ Error processing image: {str(e)}")
-        
-        # Add some usage tips
-        with st.expander("💡 Tips for best results"):
-            st.markdown("""
-            - **Use clear, well-lit face images**
-            - **Front-facing photos work best**  
-            - **Avoid heavy filters or editing**
-            - **Ensure the face is clearly visible**
-            - **Recommended size: 256x256 pixels or larger**
-            """)
-    
-    else:
-        st.error("❌ Could not initialize model")
-        
-        st.markdown("""
-        ### 🚨 Setup Instructions
-        
-        1. **Run the fixed export code in Colab**
-        2. **Download `compatible_models_fixed.zip`**
-        3. **Extract the zip file**
-        4. **Place these 3 files in the `models` folder:**
-           - `simple_emotion_model.h5`
-           - `simple_emotion_weights.weights.h5`
-           - `emotion_weights.weights.h5`
-        5. **Restart the app**
-        """)
+                st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
